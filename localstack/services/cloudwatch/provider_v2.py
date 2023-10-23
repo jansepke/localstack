@@ -1,9 +1,23 @@
 import logging
 
-from localstack.aws.api import RequestContext
-from localstack.aws.api.cloudwatch import AlarmNames, CloudwatchApi
 from localstack.http import Request
+from localstack.aws.api import RequestContext, handler
+from localstack.aws.api.cloudwatch import (
+    ActionPrefix,
+    AlarmArn,
+    AlarmName,
+    AlarmNamePrefix,
+    AlarmNames,
+    AlarmTypes,
+    CloudwatchApi,
+    DescribeAlarmsOutput,
+    MaxRecords,
+    NextToken,
+    PutMetricAlarmInput,
+    StateValue,
+)
 from localstack.services.cloudwatch.alarm_scheduler import AlarmScheduler
+from localstack.services.cloudwatch.models import CloudWatchStore, cloudwatch_stores
 from localstack.services.edge import ROUTER
 from localstack.services.plugins import SERVICE_PLUGINS, ServiceLifecycleHook
 from localstack.utils.sync import poll_condition
@@ -29,6 +43,15 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
         self.tags = TaggingService()
         self.alarm_scheduler: AlarmScheduler = None
         self.store = None
+
+    @staticmethod
+    def get_store(account_id: str, region: str) -> CloudWatchStore:
+        return cloudwatch_stores[account_id][region]
+
+    @staticmethod
+    def get_alarm_arn(account_id: str, region: str, name: str) -> AlarmArn:
+        # TODO: move this to the data class of Alarm should we introduce one
+        return f"arn:aws:sqs:{region}:{account_id}:{name}"
 
     def on_after_init(self):
         ROUTER.add(PATH_GET_RAW_METRICS, self.get_raw_metrics)
@@ -74,7 +97,36 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
             alarm_arn = ""  # obtain alarm ARN from alarm name
             self.alarm_scheduler.delete_alarm(alarm_arn)
 
+
     def get_raw_metrics(self, request: Request):
         # TODO this needs to be read from the database
         # FIXME this is just a placeholder for now
         return {"metrics": []}
+    @handler("PutMetricAlarm", expand=False)
+    def put_metric_alarm(self, context: RequestContext, request: PutMetricAlarmInput) -> None:
+
+        store = self.get_store(context.account_id, context.region)
+        alarm = {**request}
+        alarm_arn = self.get_alarm_arn(context.account_id, context.region, request.get("AlarmName"))
+        store.Alarms[alarm_arn] = alarm
+
+    def describe_alarms(
+        self,
+        context: RequestContext,
+        alarm_names: AlarmNames = None,
+        alarm_name_prefix: AlarmNamePrefix = None,
+        alarm_types: AlarmTypes = None,
+        children_of_alarm_name: AlarmName = None,
+        parents_of_alarm_name: AlarmName = None,
+        state_value: StateValue = None,
+        action_prefix: ActionPrefix = None,
+        max_records: MaxRecords = None,
+        next_token: NextToken = None,
+    ) -> DescribeAlarmsOutput:
+        store = self.get_store(context.account_id, context.region)
+        composite_alarms = []
+        metric_alarms = []
+        for alarm_arn, alarm in store.Alarms.items():
+            alarm["AlarmArn"] = alarm_arn
+            metric_alarms.append(alarm)
+        return DescribeAlarmsOutput(CompositeAlarms=composite_alarms, MetricAlarms=metric_alarms)
