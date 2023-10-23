@@ -110,6 +110,7 @@ class CloudFormationStackProvider(ResourceProvider[CloudFormationStackProperties
 
         stack = descriptions["Stacks"][0]
         if stack["StackStatus"] == "CREATE_COMPLETE":
+            model["Outputs"] = {o["OutputKey"]: o["OutputValue"] for o in stack.get("Outputs", [])}
             return ProgressEvent(
                 status=OperationStatus.SUCCESS,
                 resource_model=model,
