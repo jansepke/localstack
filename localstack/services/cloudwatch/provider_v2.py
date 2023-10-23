@@ -4,6 +4,7 @@ from localstack.aws.api import RequestContext
 from localstack.aws.api.cloudwatch import AlarmNames, CloudwatchApi
 from localstack.http import Request
 from localstack.services.cloudwatch.alarm_scheduler import AlarmScheduler
+from localstack.services.cloudwatch.cloudwatch_database_helper import CloudwatchDatabase
 from localstack.services.edge import ROUTER
 from localstack.services.plugins import SERVICE_PLUGINS, ServiceLifecycleHook
 from localstack.utils.sync import poll_condition
@@ -11,7 +12,6 @@ from localstack.utils.tagging import TaggingService
 from localstack.utils.threads import start_worker_thread
 
 PATH_GET_RAW_METRICS = "/_aws/cloudwatch/metrics/raw"
-DEPRECATED_PATH_GET_RAW_METRICS = "/cloudwatch/metrics/raw"
 MOTO_INITIAL_UNCHECKED_REASON = "Unchecked: Initial alarm creation"
 
 LOG = logging.getLogger(__name__)
@@ -29,6 +29,7 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
         self.tags = TaggingService()
         self.alarm_scheduler: AlarmScheduler = None
         self.store = None
+        self.cloudwatch_database = CloudwatchDatabase()
 
     def on_after_init(self):
         ROUTER.add(PATH_GET_RAW_METRICS, self.get_raw_metrics)
@@ -36,6 +37,7 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
 
     def on_before_state_reset(self):
         self.shutdown_alarm_scheduler()
+        self.cloudwatch_database.clear_tables()
 
     def on_after_state_reset(self):
         self.start_alarm_scheduler()
@@ -54,6 +56,7 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
 
     def on_before_stop(self):
         self.shutdown_alarm_scheduler()
+        self.cloudwatch_database.shutdown()
 
     def start_alarm_scheduler(self):
         if not self.alarm_scheduler:
