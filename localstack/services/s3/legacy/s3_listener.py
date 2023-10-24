@@ -25,9 +25,8 @@ from localstack.aws.connect import connect_to
 from localstack.aws.protocol.serializer import gen_amzn_requestid
 from localstack.config import get_protocol as get_service_protocol
 from localstack.constants import AWS_REGION_US_EAST_1
-from localstack.services.generic_proxy import ProxyListener
+from localstack.services.generic_proxy import ProxyListener, is_cors_origin_allowed
 from localstack.services.generic_proxy import append_cors_headers as _append_default_cors_headers
-from localstack.services.generic_proxy import is_cors_origin_allowed
 from localstack.services.s3.legacy import multipart_content
 from localstack.services.s3.legacy.s3_utils import (
     ALLOWED_HEADER_OVERRIDES,
@@ -607,7 +606,6 @@ def append_cors_headers(
         cors = BackendState.cors_config(bucket_name)
         assert cors
     except Exception:
-
         # add default LocalStack CORS if the bucket is not configured and the origin is allowed
         if is_cors_origin_allowed(request_headers):
             _append_default_cors_headers(request_headers=request_headers, response=response)
@@ -637,7 +635,6 @@ def append_cors_headers(
             for allowed in allowed_origins:
                 allowed = allowed or ""
                 if origin in allowed or re.match(allowed.replace("*", ".*"), origin):
-
                     response.headers["Access-Control-Allow-Origin"] = origin
                     if "AllowedMethod" in rule:
                         response.headers["Access-Control-Allow-Methods"] = (
