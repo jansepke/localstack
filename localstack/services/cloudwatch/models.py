@@ -4,7 +4,7 @@ from typing import Dict
 from moto.cloudwatch.models import CloudWatchBackend as MotoCloudWatchBackend
 from moto.cloudwatch.models import cloudwatch_backends as moto_cloudwatch_backend
 
-from localstack.aws.api.cloudwatch import CompositeAlarm, MetricAlarm
+from localstack.aws.api.cloudwatch import CompositeAlarm, MetricAlarm, StateValue
 from localstack.services.stores import (
     AccountRegionBundle,
     BaseStore,
@@ -18,14 +18,12 @@ def get_moto_logs_backend(account_id: str, region_name: str) -> MotoCloudWatchBa
     return moto_cloudwatch_backend[account_id][region_name]
 
 
-class LocalStackAlarm:
+class LocalStackMetricAlarm:
     region: str
     account_id: str
+    alarm: MetricAlarm
 
-    # TODO: needs two separate classes for CompositeAlarm and MetricAlarm?
-    alarm: MetricAlarm | CompositeAlarm
-
-    def __init__(self, account_id: str, region: str, alarm: MetricAlarm | CompositeAlarm):
+    def __init__(self, account_id: str, region: str, alarm: MetricAlarm):
         self.account_id = account_id
         self.region = region
         self.alarm = alarm
@@ -41,11 +39,27 @@ class LocalStackAlarm:
         self.alarm.setdefault("OKActions", [])
         self.alarm.setdefault("AlarmActions", [])
         self.alarm.setdefault("InsufficientDataActions", [])
-        self.alarm["StateValue"] = "INSUFFICIENT_DATA"
+        self.alarm["StateValue"] = StateValue.INSUFFICIENT_DATA
         self.alarm["StateReason"] = "Unchecked: Initial alarm creation"
         self.alarm["StateUpdatedTimestamp"] = current_time
         self.alarm.setdefault("Dimensions", [])
         self.alarm["StateTransitionedTimestamp"] = current_time
+
+
+class LocalStackCompositeAlarm:
+    region: str
+    account_id: str
+    alarm: CompositeAlarm
+
+    def __init__(self, account_id: str, region: str, alarm: CompositeAlarm):
+        self.account_id = account_id
+        self.region = region
+        self.alarm = alarm
+        self.set_default_attributes()
+
+    def set_default_attributes(self):
+        # TODO
+        pass
 
 
 class CloudWatchStore(BaseStore):
@@ -53,7 +67,9 @@ class CloudWatchStore(BaseStore):
     TAGS: Dict[str, Dict[str, str]] = CrossRegionAttribute(default=dict)
 
     # maps resource ARN to alarms
-    Alarms: Dict[str, LocalStackAlarm] = LocalAttribute(default=dict)
+    Alarms: Dict[str, LocalStackMetricAlarm | LocalStackCompositeAlarm] = LocalAttribute(
+        default=dict
+    )
 
 
 cloudwatch_stores = AccountRegionBundle("cloudwatch", CloudWatchStore)

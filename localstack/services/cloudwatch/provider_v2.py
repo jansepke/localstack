@@ -19,7 +19,7 @@ from localstack.http import Request
 from localstack.services.cloudwatch.alarm_scheduler import AlarmScheduler
 from localstack.services.cloudwatch.models import (
     CloudWatchStore,
-    LocalStackAlarm,
+    LocalStackMetricAlarm,
     cloudwatch_stores,
 )
 from localstack.services.edge import ROUTER
@@ -155,7 +155,7 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
             )
 
         store = self.get_store(context.account_id, context.region)
-        metric_alarm = LocalStackAlarm(context.account_id, context.region, {**request})
+        metric_alarm = LocalStackMetricAlarm(context.account_id, context.region, {**request})
         alarm_arn = metric_alarm.alarm["AlarmArn"]
         store.Alarms[alarm_arn] = metric_alarm
         self.alarm_scheduler.schedule_metric_alarm(alarm_arn)
