@@ -174,31 +174,19 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
         next_token: NextToken = None,
     ) -> DescribeAlarmsOutput:
         store = self.get_store(context.account_id, context.region)
+        alarms = list(store.Alarms.values())
         if action_prefix:
-            alarms = self._filter_alarms_by_action_prefix(store, action_prefix)
+            alarms = [a.alarm for a in alarms if a.alarm["AlarmAction"].startswith(action_prefix)]
         elif alarm_name_prefix:
-            alarms = self._filter_alarms_by_alarm_name_prefix(store, alarm_name_prefix)
+            alarms = [a.alarm for a in alarms if a.alarm["AlarmName"].startswith(alarm_name_prefix)]
         elif alarm_names:
-            alarms = [
-                a.alarm for a in list(store.Alarms.values()) if a.alarm["AlarmName"] in alarm_names
-            ]
+            alarms = [a.alarm for a in alarms if a.alarm["AlarmName"] in alarm_names]
         elif state_value:
-            alarms = self._filter_alarms_by_state_value(store, state_value)
+            alarms = [a.alarm for a in alarms if a.alarm["StateValue"] == state_value]
         else:
             alarms = [a.alarm for a in list(store.Alarms.values())]
 
+        # TODO: Pagination
         metric_alarms = [a for a in alarms if a.get("AlarmRule") is None]
         composite_alarms = [a for a in alarms if a.get("AlarmRule") is not None]
         return DescribeAlarmsOutput(CompositeAlarms=composite_alarms, MetricAlarms=metric_alarms)
-
-    def _filter_alarms_by_action_prefix(self, store, action_prefix):
-        # TODO: implement correct filtering
-        return list(store.Alarms.values())
-
-    def _filter_alarms_by_alarm_name_prefix(self, store, alarm_name_prefix):
-        # TODO: implement correct filtering
-        return list(store.Alarms.values())
-
-    def _filter_alarms_by_state_value(self, store, state_value):
-        # TODO: implement correct filtering
-        return list(store.Alarms.values())
