@@ -16,52 +16,19 @@ def get_moto_logs_backend(account_id: str, region_name: str) -> MotoCloudWatchBa
     return moto_cloudwatch_backend[account_id][region_name]
 
 
-class LocalStackMetricAlarm(MetricAlarm):
-    name: str
+class LocalStackMetricAlarm:
     region: str
     account_id: str
 
-    def __int__(
-        self,
-        name,
-        region,
-        account_id,
-        alarm_name,
-        alarm_description=None,
-        alarm_configuration_updated_timestamp=None,
-        actions_enabled=None,
-        ok_actions=None,
-        alarm_actions=None,
-        insufficient_data_actions=None,
-        state_value=None,
-        state_reason=None,
-        state_reason_data=None,
-        state_updated_timestamp=None,
-        metric_name=None,
-        namespace=None,
-        statistic=None,
-        extended_statistic=None,
-        dimensions=None,
-        period=None,
-        unit=None,
-        evaluation_periods=None,
-        datapoints_to_alarm=None,
-        threshold=None,
-        comparison_operator=None,
-        treat_missing_ata=None,
-        evaluate_low_sample_count_percentile=None,
-        metrics=None,
-        threshold_metric_id=None,
-        evaluation_state=None,
-        state_transitioned_timestamp=None,
-    ):
-        self.name = name
-        self.region = region
-        self.account_id = account_id
+    alarm: MetricAlarm
 
-    @property
-    def arn(self):
-        return f"arn:aws:sqs:{self.region}:{self.account_id}:{self.name}"
+    def __init__(self, account_id: str, region: str, alarm: MetricAlarm):
+        self.account_id = account_id
+        self.region = region
+        self.alarm = alarm
+        alarm[
+            "AlarmArn"
+        ] = f"arn:aws:cloudwatch:{self.region}:{self.account_id}:{self.alarm['AlarmName']}"
 
 
 class CloudWatchStore(BaseStore):
