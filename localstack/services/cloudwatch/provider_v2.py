@@ -1,8 +1,16 @@
 import logging
 
 from localstack.aws.api import RequestContext
-from localstack.aws.api.cloudwatch import AlarmNames, CloudwatchApi, AmazonResourceName, ListTagsForResourceOutput, \
-    TagKeyList, UntagResourceOutput, TagResourceOutput, TagList
+from localstack.aws.api.cloudwatch import (
+    AlarmNames,
+    AmazonResourceName,
+    CloudwatchApi,
+    ListTagsForResourceOutput,
+    TagKeyList,
+    TagList,
+    TagResourceOutput,
+    UntagResourceOutput,
+)
 from localstack.http import Request
 from localstack.services.cloudwatch.alarm_scheduler import AlarmScheduler
 from localstack.services.edge import ROUTER
