@@ -1,6 +1,7 @@
 import copy
 import gzip
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from urllib.request import Request, urlopen
 
@@ -926,6 +927,9 @@ class TestCloudwatch:
         snapshot.match("get_metric_data_2", response)
 
     @markers.aws.validated
+    @pytest.mark.skipif(
+        os.environ.get("PROVIDER_OVERRIDE_CLOUDWATCH") != "v2", reason="New test for v2 provider"
+    )
     def test_describe_minimal_metric_alarm(self, snapshot, aws_client, cleanups):
         snapshot.add_transformer(snapshot.transform.cloudwatch_api())
         alarm_name = f"a-{short_uid()}"
