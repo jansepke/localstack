@@ -1,7 +1,7 @@
 import logging
 
 from localstack.http import Request
-from localstack.aws.api import RequestContext, handler
+from localstack.aws.api import CommonServiceException, RequestContext, handler
 from localstack.aws.api.cloudwatch import (
     ActionPrefix,
     AlarmName,
@@ -19,11 +19,12 @@ from localstack.aws.api.cloudwatch import (
 from localstack.services.cloudwatch.alarm_scheduler import AlarmScheduler
 from localstack.services.cloudwatch.models import (
     CloudWatchStore,
-    LocalStackMetricAlarm,
+    LocalStackAlarm,
     cloudwatch_stores,
 )
 from localstack.services.edge import ROUTER
 from localstack.services.plugins import SERVICE_PLUGINS, ServiceLifecycleHook
+from localstack.utils.aws import arns
 from localstack.utils.sync import poll_condition
 from localstack.utils.tagging import TaggingService
 from localstack.utils.threads import start_worker_thread
@@ -33,6 +34,12 @@ DEPRECATED_PATH_GET_RAW_METRICS = "/cloudwatch/metrics/raw"
 MOTO_INITIAL_UNCHECKED_REASON = "Unchecked: Initial alarm creation"
 
 LOG = logging.getLogger(__name__)
+
+
+class ValidationError(CommonServiceException):
+    # TODO: check this error against AWS (doesn't exist in the API)
+    def __init__(self, message: str):
+        super().__init__("ValidationError", message, 400, True)
 
 
 class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
@@ -92,9 +99,9 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
         Delete alarms.
         """
 
-        for alarm_name in alarm_names.alarm_names:
-            alarm_arn = ""  # obtain alarm ARN from alarm name
-            self.alarm_scheduler.delete_alarm(alarm_arn)
+        for alarm_name in alarm_names:
+            alarm_arn = arns.cloudwatch_alarm_arn(alarm_name)  # obtain alarm ARN from alarm name
+            self.alarm_scheduler.delete_scheduler_for_alarm(alarm_arn)
 
 
     def get_raw_metrics(self, request: Request):
@@ -103,6 +110,35 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
         return {"metrics": []}
     @handler("PutMetricAlarm", expand=False)
     def put_metric_alarm(self, context: RequestContext, request: PutMetricAlarmInput) -> None:
+        # missing will be the default, when not set (but it will not explicitly be set)
+        if request.get("TreatMissingData", "missing") not in [
+            "breaching",
+            "notBreaching",
+            "ignore",
+            "missing",
+        ]:
+            raise ValidationError(
+                f"The value {request['TreatMissingData']} is not supported for TreatMissingData parameter. Supported values are [breaching, notBreaching, ignore, missing]."
+            )
+            # do some sanity checks:
+        if request.get("Period"):
+            # Valid values are 10, 30, and any multiple of 60.
+            value = request.get("Period")
+            if value not in (10, 30):
+                if value % 60 != 0:
+                    raise ValidationError("Period must be 10, 30 or a multiple of 60")
+        if request.get("Statistic"):
+            if request.get("Statistic") not in [
+                "SampleCount",
+                "Average",
+                "Sum",
+                "Minimum",
+                "Maximum",
+            ]:
+                raise ValidationError(
+                    f"Value '{request.get('Statistic')}' at 'statistic' failed to satisfy constraint: Member must satisfy enum value set: [Maximum, SampleCount, Sum, Minimum, Average]"
+                )
+
         extended_statistic = request.get("ExtendedStatistic")
         if extended_statistic and not extended_statistic.startswith("p"):
             raise InvalidParameterValueException(
@@ -113,16 +149,16 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
             "evaluate",
             "ignore",
         ):
-            # TODO: check exception type against AWS
-            raise InvalidParameterValueException(
+            raise ValidationError(
                 f"Option {evaluate_low_sample_count_percentile} is not supported. "
                 "Supported options for parameter EvaluateLowSampleCountPercentile are evaluate and ignore."
             )
 
         store = self.get_store(context.account_id, context.region)
-        metric_alarm = LocalStackMetricAlarm(context.account_id, context.region, {**request})
+        metric_alarm = LocalStackAlarm(context.account_id, context.region, {**request})
         alarm_arn = metric_alarm.alarm["AlarmArn"]
         store.Alarms[alarm_arn] = metric_alarm
+        self.alarm_scheduler.schedule_metric_alarm(alarm_arn)
 
     def describe_alarms(
         self,
@@ -139,30 +175,32 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
     ) -> DescribeAlarmsOutput:
         store = self.get_store(context.account_id, context.region)
         if action_prefix:
-            alarms = self._get_alarms_by_action_prefix(action_prefix)
+            alarms = self._get_alarms_by_action_prefix(store, action_prefix)
         elif alarm_name_prefix:
-            alarms = self._get_alarms_by_alarm_name_prefix(alarm_name_prefix)
+            alarms = self._get_alarms_by_alarm_name_prefix(store, alarm_name_prefix)
         elif alarm_names:
-            alarms = self._get_alarms_by_alarm_names(alarm_names)
+            alarms = self._get_alarms_by_alarm_names(store, alarm_names)
         elif state_value:
-            alarms = self._get_alarms_by_state_value(state_value)
+            alarms = self._get_alarms_by_state_value(store, state_value)
         else:
             alarms = list(store.Alarms.values())
-        # TODO: differentiate metric and composite alarms
-        # metric_alarms = [a.alarm for a in alarms if a.rule is None]
-        # composite_alarms = [a.alarm for a in alarms if a.rule is not None]
-        composite_alarms = []
-        metric_alarms = [a.alarm for a in alarms]
+
+        metric_alarms = [a.alarm for a in alarms if a.alarm.get("AlarmRule") is None]
+        composite_alarms = [a.alarm for a in alarms if a.alarm.get("AlarmRule") is not None]
         return DescribeAlarmsOutput(CompositeAlarms=composite_alarms, MetricAlarms=metric_alarms)
 
-    def _get_alarms_by_action_prefix(self, action_prefix):
-        pass
+    def _get_alarms_by_action_prefix(self, store, action_prefix):
+        # TODO: implement correct filtering
+        return list(store.Alarms.values())
 
-    def _get_alarms_by_alarm_name_prefix(self, alarm_name_prefix):
-        pass
+    def _get_alarms_by_alarm_name_prefix(self, store, alarm_name_prefix):
+        # TODO: implement correct filtering
+        return list(store.Alarms.values())
 
-    def _get_alarms_by_alarm_names(self, alarm_names):
-        pass
+    def _get_alarms_by_alarm_names(self, store, alarm_names):
+        # TODO: implement correct filtering
+        return list(store.Alarms.values())
 
-    def _get_alarms_by_state_value(self, state_value):
-        pass
+    def _get_alarms_by_state_value(self, store, state_value):
+        # TODO: implement correct filtering
+        return list(store.Alarms.values())
