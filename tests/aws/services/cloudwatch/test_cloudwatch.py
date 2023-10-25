@@ -925,7 +925,7 @@ class TestCloudwatch:
 
         snapshot.match("get_metric_data_2", response)
 
-    @markers.aws.unknown
+    @markers.aws.validated
     def test_describe_minimal_metric_alarm(self, snapshot, aws_client, cleanups):
         snapshot.add_transformer(snapshot.transform.cloudwatch_api())
         alarm_name = f"a-{short_uid()}"
