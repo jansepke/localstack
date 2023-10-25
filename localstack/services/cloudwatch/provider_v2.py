@@ -1,6 +1,5 @@
 import logging
 
-from localstack.http import Request
 from localstack.aws.api import CommonServiceException, RequestContext, handler
 from localstack.aws.api.cloudwatch import (
     ActionPrefix,
@@ -16,6 +15,7 @@ from localstack.aws.api.cloudwatch import (
     PutMetricAlarmInput,
     StateValue,
 )
+from localstack.http import Request
 from localstack.services.cloudwatch.alarm_scheduler import AlarmScheduler
 from localstack.services.cloudwatch.models import (
     CloudWatchStore,
@@ -103,11 +103,11 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
             alarm_arn = arns.cloudwatch_alarm_arn(alarm_name)  # obtain alarm ARN from alarm name
             self.alarm_scheduler.delete_scheduler_for_alarm(alarm_arn)
 
-
     def get_raw_metrics(self, request: Request):
         # TODO this needs to be read from the database
         # FIXME this is just a placeholder for now
         return {"metrics": []}
+
     @handler("PutMetricAlarm", expand=False)
     def put_metric_alarm(self, context: RequestContext, request: PutMetricAlarmInput) -> None:
         # missing will be the default, when not set (but it will not explicitly be set)
@@ -175,32 +175,30 @@ class CloudwatchProvider(CloudwatchApi, ServiceLifecycleHook):
     ) -> DescribeAlarmsOutput:
         store = self.get_store(context.account_id, context.region)
         if action_prefix:
-            alarms = self._get_alarms_by_action_prefix(store, action_prefix)
+            alarms = self._filter_alarms_by_action_prefix(store, action_prefix)
         elif alarm_name_prefix:
-            alarms = self._get_alarms_by_alarm_name_prefix(store, alarm_name_prefix)
+            alarms = self._filter_alarms_by_alarm_name_prefix(store, alarm_name_prefix)
         elif alarm_names:
-            alarms = self._get_alarms_by_alarm_names(store, alarm_names)
+            alarms = [
+                a.alarm for a in list(store.Alarms.values()) if a.alarm["AlarmName"] in alarm_names
+            ]
         elif state_value:
-            alarms = self._get_alarms_by_state_value(store, state_value)
+            alarms = self._filter_alarms_by_state_value(store, state_value)
         else:
-            alarms = list(store.Alarms.values())
+            alarms = [a.alarm for a in list(store.Alarms.values())]
 
-        metric_alarms = [a.alarm for a in alarms if a.alarm.get("AlarmRule") is None]
-        composite_alarms = [a.alarm for a in alarms if a.alarm.get("AlarmRule") is not None]
+        metric_alarms = [a for a in alarms if a.get("AlarmRule") is None]
+        composite_alarms = [a for a in alarms if a.get("AlarmRule") is not None]
         return DescribeAlarmsOutput(CompositeAlarms=composite_alarms, MetricAlarms=metric_alarms)
 
-    def _get_alarms_by_action_prefix(self, store, action_prefix):
+    def _filter_alarms_by_action_prefix(self, store, action_prefix):
         # TODO: implement correct filtering
         return list(store.Alarms.values())
 
-    def _get_alarms_by_alarm_name_prefix(self, store, alarm_name_prefix):
+    def _filter_alarms_by_alarm_name_prefix(self, store, alarm_name_prefix):
         # TODO: implement correct filtering
         return list(store.Alarms.values())
 
-    def _get_alarms_by_alarm_names(self, store, alarm_names):
-        # TODO: implement correct filtering
-        return list(store.Alarms.values())
-
-    def _get_alarms_by_state_value(self, store, state_value):
+    def _filter_alarms_by_state_value(self, store, state_value):
         # TODO: implement correct filtering
         return list(store.Alarms.values())
