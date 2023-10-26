@@ -418,9 +418,6 @@ USE_SSL = is_env_true("USE_SSL")
 # whether to use the legacy edge proxy or the newer Gateway/HandlerChain framework
 LEGACY_EDGE_PROXY = is_env_true("LEGACY_EDGE_PROXY")
 
-# whether legacy s3 is enabled
-LEGACY_S3_PROVIDER = os.environ.get("PROVIDER_OVERRIDE_S3", "") == "legacy"
-
 # whether the S3 native provider is enabled
 NATIVE_S3_PROVIDER = os.environ.get("PROVIDER_OVERRIDE_S3", "") in ("v3", "stream")
 
@@ -858,7 +855,7 @@ SQS_DELAY_RECENTLY_DELETED = is_env_true("SQS_DELAY_RECENTLY_DELETED")
 # expose SQS on a specific port externally
 SQS_PORT_EXTERNAL = int(os.environ.get("SQS_PORT_EXTERNAL") or 0)
 
-# Strategy used when creating SQS queue urls. can be "off", "domain", or "path"
+# Strategy used when creating SQS queue urls. can be "off" (default), "standard", "domain", or "path"
 SQS_ENDPOINT_STRATEGY = os.environ.get("SQS_ENDPOINT_STRATEGY", "") or "off"
 
 # Disable the check for MaxNumberOfMessage in SQS ReceiveMessage
