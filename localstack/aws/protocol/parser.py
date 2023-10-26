@@ -68,8 +68,7 @@ import functools
 import re
 from abc import ABC
 from email.utils import parsedate_to_datetime
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
-from typing.io import IO
+from typing import IO, Any, Dict, List, Mapping, Optional, Tuple, Union
 from urllib.parse import unquote
 from xml.etree import ElementTree as ETree
 
@@ -88,7 +87,7 @@ from werkzeug.exceptions import BadRequest, NotFound
 
 from localstack.aws.api import HttpRequest
 from localstack.aws.protocol.op_router import RestServiceOperationRouter
-from localstack.config import LEGACY_S3_PROVIDER
+from localstack.config import NATIVE_S3_PROVIDER
 
 
 def _text_content(func):
@@ -972,6 +971,8 @@ class S3RequestParser(RestXMLRequestParser):
         """
         Context Manager which rewrites the request object parameters such that - within the context - it looks like a
         normal S3 request.
+        FIXME: this is not optimal because it mutates the Request object. Once we have better utility to create/copy
+        a request instead of EnvironBuilder, we should copy it before parsing (except the stream).
         """
 
         def __init__(self, request: HttpRequest):
@@ -981,14 +982,14 @@ class S3RequestParser(RestXMLRequestParser):
 
         def __enter__(self):
             # only modify the request if it uses the virtual host addressing
-            if self._is_vhost_address(self.request):
+            if bucket_name := self._is_vhost_address_get_bucket(self.request):
                 # save the original path and host for restoring on context exit
                 self.old_path = self.request.path
                 self.old_host = self.request.host
                 self.old_raw_uri = self.request.environ.get("RAW_URI")
 
-                # extract the bucket name from the host part of the request
-                bucket_name, new_host = self.old_host.split(".", maxsplit=1)
+                # remove the bucket name from the host part of the request
+                new_host = self.old_host.removeprefix(f"{bucket_name}.")
 
                 # split the url and put the bucket name at the front
                 path_parts = self.old_path.split("/")
@@ -1047,14 +1048,14 @@ class S3RequestParser(RestXMLRequestParser):
                 pass
 
         @staticmethod
-        def _is_vhost_address(request: HttpRequest) -> bool:
+        def _is_vhost_address_get_bucket(request: HttpRequest) -> str | None:
             from localstack.services.s3.utils import uses_host_addressing
 
             return uses_host_addressing(request.headers)
 
     @_handle_exceptions
     def parse(self, request: HttpRequest) -> Tuple[OperationModel, Any]:
-        if LEGACY_S3_PROVIDER:
+        if NATIVE_S3_PROVIDER:
             """Handle virtual-host-addressing for S3."""
             with self.VirtualHostRewriter(request):
                 return super().parse(request)
